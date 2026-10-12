@@ -1,8 +1,12 @@
 "use client";
 import Image from "next/image";
-
-import { useState, type FormEvent } from "react";
-
+import { toPng } from "html-to-image";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 type Book = {
   key: string;
   title: string;
@@ -26,19 +30,58 @@ type OpenLibraryResponse = {
 export default function Home() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [author, setAuthor] = useState("");
   const [books, setBooks] = useState<Book[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState("");
+  const [libraryBooks, setLibraryBooks] = useState<Book[]>([]);
+   const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
+  const NUMBER_OF_COMPARTMENTS = 12;
+const BOOKS_PER_COMPARTMENT = 3;
+const LIBRARY_STORAGE_KEY = "shelfscape-library";
+const wallpaperRef = useRef<HTMLDivElement>(null);
+const [isExporting, setIsExporting] = useState(false);
+useEffect(() => {
+    const savedLibrary = window.localStorage.getItem(
+      LIBRARY_STORAGE_KEY,
+    );
+
+    if (savedLibrary) {
+      try {
+        const parsedLibrary = JSON.parse(savedLibrary) as Book[];
+        setLibraryBooks(parsedLibrary);
+      } catch {
+        window.localStorage.removeItem(LIBRARY_STORAGE_KEY);
+      }
+    }
+
+    setIsLibraryLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isLibraryLoaded) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      LIBRARY_STORAGE_KEY,
+      JSON.stringify(libraryBooks),
+    );
+  }, [libraryBooks, isLibraryLoaded]);
+
+  
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const cleanedQuery = query.trim();
+    const cleanedTitle = query.trim();
+const cleanedAuthor = author.trim();
 
-    if (!cleanedQuery) {
-      return;
-    }
+if (!cleanedTitle && !cleanedAuthor) {
+  setError("Enter a book title, an author, or both.");
+  return;
+}
 
     setIsLoading(true);
     setHasSearched(true);
@@ -46,11 +89,17 @@ export default function Home() {
 
     try {
       const parameters = new URLSearchParams({
-        q: cleanedQuery,
-        fields: "key,title,author_name,first_publish_year,cover_i",
-        limit: "8",
-      });
+  fields: "key,title,author_name,first_publish_year,cover_i",
+  limit: "30",
+});
 
+if (cleanedTitle) {
+  parameters.set("title", cleanedTitle);
+}
+
+if (cleanedAuthor) {
+  parameters.set("author", cleanedAuthor);
+}
       const response = await fetch(
         `https://openlibrary.org/search.json?${parameters}`,
       );
@@ -61,13 +110,16 @@ export default function Home() {
 
       const data: OpenLibraryResponse = await response.json();
 
-      const formattedBooks: Book[] = data.docs.map((book) => ({
-        key: book.key,
-        title: book.title,
-        authors: book.author_name ?? ["Unknown author"],
-        firstPublishYear: book.first_publish_year,
-        coverId: book.cover_i,
-      }));
+      const formattedBooks: Book[] = data.docs
+  .filter((book) => typeof book.cover_i === "number")
+  .slice(0, 8)
+  .map((book) => ({
+    key: book.key,
+    title: book.title,
+    authors: book.author_name ?? ["Unknown author"],
+    firstPublishYear: book.first_publish_year,
+    coverId: book.cover_i,
+  }));
 
       setBooks(formattedBooks);
     } catch {
@@ -77,7 +129,58 @@ export default function Home() {
       setIsLoading(false);
     }
   }
+  function addBook(book: Book) {
+  setLibraryBooks((currentBooks) => {
+    const bookAlreadyExists = currentBooks.some(
+      (currentBook) => currentBook.key === book.key,
+    );
 
+    if (bookAlreadyExists) {
+      return currentBooks;
+    }
+
+    return [...currentBooks, book];
+  });
+}
+
+function removeBook(bookKey: string) {
+  setLibraryBooks((currentBooks) =>
+    currentBooks.filter((book) => book.key !== bookKey),
+  );
+}
+async function downloadWallpaper() {
+  if (!wallpaperRef.current) {
+    return;
+  }
+
+  setIsExporting(true);
+  setError("");
+
+  try {
+    const outputWidth = 3024;
+    const outputHeight = 1964;
+
+    const elementWidth = wallpaperRef.current.offsetWidth;
+    const exportScale = outputWidth / elementWidth;
+
+    const dataUrl = await toPng(wallpaperRef.current, {
+      cacheBust: true,
+      pixelRatio: exportScale,
+      backgroundColor: "#6f3f22",
+    });
+
+    const downloadLink = document.createElement("a");
+    downloadLink.download =
+      `shelfscape-${outputWidth}x${outputHeight}.png`;
+    downloadLink.href = dataUrl;
+    downloadLink.click();
+  } catch (exportError) {
+    console.error(exportError);
+    setError("The wallpaper could not be generated.");
+  } finally {
+    setIsExporting(false);
+  }
+}
   return (
     <main className="min-h-screen bg-[#f4efe6] text-[#2c2118]">
       <section className="mx-auto max-w-6xl px-6 py-20">
@@ -86,7 +189,7 @@ export default function Home() {
         </p>
 
         <h1 className="text-6xl font-bold tracking-tight sm:text-8xl">
-          Shelfscape
+          Shelfpaper
         </h1>
 
         <p className="mt-6 max-w-xl text-lg leading-8 text-[#65584d]">
@@ -100,7 +203,7 @@ export default function Home() {
           aria-expanded={isSearchOpen}
           className="mt-10 w-fit rounded-full bg-[#2c2118] px-6 py-3 font-semibold text-[#f4efe6] transition hover:bg-[#8b5e3c]"
         >
-          {isSearchOpen ? "Find another book" : "Add your first book"}
+          {isSearchOpen ? "Find another book" : "Add a book"}
         </button>
 
         {isSearchOpen && (
@@ -108,29 +211,48 @@ export default function Home() {
             <h2 className="text-2xl font-semibold">Find a book</h2>
 
             <p className="mt-2 text-[#65584d]">
-              Search using a title, author, or ISBN.
+             Search by title, author, or combine both for better results.
             </p>
 
             <form
-              onSubmit={handleSubmit}
-              className="mt-5 flex flex-col gap-3 sm:flex-row"
-            >
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="For example: The Hobbit"
-                className="min-w-0 flex-1 rounded-full border border-[#b9aa98] bg-white px-5 py-3 outline-none transition focus:border-[#8b5e3c] focus:ring-2 focus:ring-[#8b5e3c]/20"
-              />
+            
+  onSubmit={handleSubmit}
+  className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]"
+>
+  <label htmlFor="book-title" className="sr-only">
+    Book title
+  </label>
 
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="rounded-full bg-[#8b5e3c] px-6 py-3 font-semibold text-white transition hover:bg-[#70482d] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isLoading ? "Searching..." : "Search"}
-              </button>
-            </form>
+  <input
+    id="book-title"
+    type="search"
+    value={query}
+    onChange={(event) => setQuery(event.target.value)}
+    placeholder="Book title - optional"
+    className="min-w-0 rounded-full border border-[#b9aa98] bg-white px-5 py-3 outline-none transition focus:border-[#8b5e3c] focus:ring-2 focus:ring-[#8b5e3c]/20"
+  />
+
+  <label htmlFor="book-author" className="sr-only">
+    Author
+  </label>
+
+  <input
+    id="book-author"
+    type="search"
+    value={author}
+    onChange={(event) => setAuthor(event.target.value)}
+    placeholder="Author — optional"
+    className="min-w-0 rounded-full border border-[#b9aa98] bg-white px-5 py-3 outline-none transition focus:border-[#8b5e3c] focus:ring-2 focus:ring-[#8b5e3c]/20"
+  />
+
+  <button
+    type="submit"
+    disabled={isLoading}
+    className="rounded-full bg-[#8b5e3c] px-6 py-3 font-semibold text-white transition hover:bg-[#70482d] disabled:cursor-not-allowed disabled:opacity-60"
+  >
+    {isLoading ? "Searching..." : "Search"}
+  </button>
+</form>
 
             {error && (
               <p className="mt-5 rounded-xl bg-red-50 p-4 text-red-700">
@@ -140,17 +262,16 @@ export default function Home() {
 
             {hasSearched && !isLoading && !error && books.length === 0 && (
               <p className="mt-5 text-[#65584d]">
-                No books were found. Try another title or an ISBN.
+                No books were found.
               </p>
             )}
 
             {books.length > 0 && (
-  <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+  <div className="mt-8 grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
     {books.map((book) => (
       <article
         key={book.key}
-        className="overflow-hidden rounded-2xl border border-[#ded3c5] bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
-      >
+      className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#ded3c5] bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
         {book.coverId ? (
           <div className="relative aspect-[2/3] bg-[#e8ded2]">
             <Image
@@ -158,7 +279,7 @@ export default function Home() {
               alt={`Cover of ${book.title}`}
               fill
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-              className="object-cover"
+             className="object-contain"
             />
           </div>
         ) : (
@@ -169,7 +290,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="p-5">
+        <div className="flex flex-1 flex-col p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-[#8b5e3c]">
             {book.firstPublishYear ?? "Year unknown"}
           </p>
@@ -181,6 +302,20 @@ export default function Home() {
           <p className="mt-2 text-sm leading-6 text-[#65584d]">
             {book.authors.slice(0, 2).join(", ")}
           </p>
+          <button
+  type="button"
+  onClick={() => addBook(book)}
+  disabled={libraryBooks.some(
+    (libraryBook) => libraryBook.key === book.key,
+  )}
+  className="mt-auto w-full rounded-full bg-[#2c2118] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#8b5e3c] disabled:cursor-default disabled:bg-[#b9aa98]"
+>
+  {libraryBooks.some(
+    (libraryBook) => libraryBook.key === book.key,
+  )
+    ? "Added"
+    : "Add to shelf"}
+</button>
         </div>
       </article>
     ))}
@@ -188,6 +323,91 @@ export default function Home() {
 )}
           </div>
         )}
+        <div className="mt-16 flex justify-end">
+  <button
+    type="button"
+    onClick={downloadWallpaper}
+    disabled={isExporting || libraryBooks.length === 0}
+    className="rounded-full bg-[#2c2118] px-6 py-3 font-semibold text-white transition hover:bg-[#8b5e3c] disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {isExporting ? "Creating wallpaper..." : "Download wallpaper"}
+  </button>
+</div>
+        <div
+ 
+  className="mt-16 bg-[#f4efe6] p-8"
+>
+  <div className="flex items-end justify-between gap-4">
+    <div>
+      <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[#8b5e3c]">
+        Your collection
+      </p>
+
+      <h2 className="mt-2 text-4xl font-bold">My library</h2>
+    </div>
+
+    <p className="text-sm text-[#65584d]">
+      {libraryBooks.length}{" "}
+      {libraryBooks.length === 1 ? "book" : "books"}
+    </p>
+  </div>
+
+  <div ref={wallpaperRef} className="bookcase mt-8">
+    {Array.from({ length: NUMBER_OF_COMPARTMENTS }).map(
+      (_, compartmentIndex) => {
+        const startingIndex =
+          compartmentIndex * BOOKS_PER_COMPARTMENT;
+
+        const compartmentBooks = libraryBooks.slice(
+          startingIndex,
+          startingIndex + BOOKS_PER_COMPARTMENT,
+        );
+
+        return (
+          <div
+            key={compartmentIndex}
+            className="bookcase-compartment"
+          >
+            <div className="bookcase-books">
+              {compartmentBooks.map((book) => (
+                <div
+                  key={book.key}
+                  className="bookcase-book group relative"
+                >
+                  {book.coverId ? (
+                    <div className="relative aspect-[2/3] overflow-hidden rounded-sm">
+                      <Image
+                        src={`https://covers.openlibrary.org/b/id/${book.coverId}-M.jpg`}
+                        alt={`Cover of ${book.title}`}
+                        fill
+                        sizes="112px"
+                        className="object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex aspect-[2/3] items-center justify-center rounded-sm bg-[#d9c5ae] p-2 text-center text-xs font-semibold text-[#6f5038]">
+                      {book.title}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => removeBook(book.key)}
+                    aria-label={`Remove ${book.title} from shelf`}
+                    className="absolute -right-2 -top-2 rounded-full bg-[#31180d] px-2 py-1 text-xs font-semibold text-white opacity-0 shadow-md transition hover:bg-red-700 group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      },
+    )}
+  </div>
+</div>
+
       </section>
     </main>
   );
