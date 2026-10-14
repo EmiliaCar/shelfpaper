@@ -1,8 +1,8 @@
-# Shelfscape
+# Shelfpaper
 
 **Your personal reading room.** Collect the books you've read, arrange their covers on a wooden bookcase, and turn your library into a high-resolution desktop wallpaper.
 
-![Shelfscape landing page](docs/screenshots/landing.png)
+![Shelfpaper landing page](docs/screenshots/landing.png)
 
 ## Features
 
@@ -46,8 +46,8 @@ Added books appear on the bookcase, which is what gets exported as your wallpape
 ### Install and run
 
 ```bash
-git clone https://github.com/EmiliaCar/shelfscape.git
-cd shelfscape
+git clone https://github.com/EmiliaCar/shelfpaper.git
+cd shelfpaper
 npm install
 npm run dev
 ```
@@ -68,7 +68,7 @@ Then open [http://localhost:3000](http://localhost:3000).
 1. **Search**: the form sends a request to `https://openlibrary.org/search.json` with `title` and/or `author` parameters. Only results with a cover are kept, and the first eight are shown.
 2. **Covers**: images load from `covers.openlibrary.org`, which is allowed in [`next.config.ts`](next.config.ts) under `images.remotePatterns`.
 3. **Storage**: the library is a JSON array saved under the `shelfscape-library` key in `localStorage`.
-4. **Export**: `html-to-image` renders the bookcase element at a pixel ratio that produces a 3024 px wide image, then downloads it as `shelfscape-3024x1964.png`.
+4. **Export**: `html-to-image` renders the bookcase element at a pixel ratio that produces a 3024 px wide image, then downloads it as `shelfpaper-3024x1964.png`.
 
 ## Project structure
 

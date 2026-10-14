@@ -225,7 +225,7 @@ async function downloadWallpaper() {
 
     const downloadLink = document.createElement("a");
     downloadLink.download =
-      `shelfscape-${outputWidth}x${outputHeight}.png`;
+      `shelfpaper-${outputWidth}x${outputHeight}.png`;
     downloadLink.href = dataUrl;
     downloadLink.click();
   } catch (exportError) {
