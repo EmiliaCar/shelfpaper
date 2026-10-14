@@ -7,13 +7,24 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import {
+  extractSpineColor,
+  getFallbackColor,
+  getSpineTextColor,
+  packSpines,
+} from "./spines";
+
 type Book = {
   key: string;
   title: string;
   authors: string[];
   firstPublishYear?: number;
   coverId?: number;
+  pages?: number;
+  spineColor?: string;
 };
+
+type ShelfView = "covers" | "spines";
 
 type OpenLibraryDocument = {
   key: string;
@@ -21,6 +32,7 @@ type OpenLibraryDocument = {
   author_name?: string[];
   first_publish_year?: number;
   cover_i?: number;
+  number_of_pages_median?: number;
 };
 
 type OpenLibraryResponse = {
@@ -40,6 +52,9 @@ export default function Home() {
   const NUMBER_OF_COMPARTMENTS = 12;
 const BOOKS_PER_COMPARTMENT = 3;
 const LIBRARY_STORAGE_KEY = "shelfscape-library";
+const VIEW_STORAGE_KEY = "shelfscape-view";
+const [shelfView, setShelfView] = useState<ShelfView>("covers");
+const spineColorRequests = useRef(new Set<string>());
 const wallpaperRef = useRef<HTMLDivElement>(null);
 const [isExporting, setIsExporting] = useState(false);
 useEffect(() => {
@@ -56,6 +71,10 @@ useEffect(() => {
       }
     }
 
+    if (window.localStorage.getItem(VIEW_STORAGE_KEY) === "spines") {
+      setShelfView("spines");
+    }
+
     setIsLibraryLoaded(true);
   }, []);
 
@@ -69,6 +88,39 @@ useEffect(() => {
       JSON.stringify(libraryBooks),
     );
   }, [libraryBooks, isLibraryLoaded]);
+
+  useEffect(() => {
+    if (isLibraryLoaded) {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, shelfView);
+    }
+  }, [shelfView, isLibraryLoaded]);
+
+  // Work out each book's spine colour once and keep it with the library.
+  useEffect(() => {
+    for (const book of libraryBooks) {
+      if (book.spineColor || spineColorRequests.current.has(book.key)) {
+        continue;
+      }
+
+      spineColorRequests.current.add(book.key);
+
+      const colorRequest = book.coverId
+        ? extractSpineColor(book.coverId)
+        : Promise.reject(new Error("No cover."));
+
+      colorRequest
+        .catch(() => getFallbackColor(book.key))
+        .then((spineColor) => {
+          setLibraryBooks((currentBooks) =>
+            currentBooks.map((currentBook) =>
+              currentBook.key === book.key
+                ? { ...currentBook, spineColor }
+                : currentBook,
+            ),
+          );
+        });
+    }
+  }, [libraryBooks]);
 
   
 
@@ -89,7 +141,8 @@ if (!cleanedTitle && !cleanedAuthor) {
 
     try {
       const parameters = new URLSearchParams({
-  fields: "key,title,author_name,first_publish_year,cover_i",
+  fields:
+    "key,title,author_name,first_publish_year,cover_i,number_of_pages_median",
   limit: "30",
 });
 
@@ -119,6 +172,7 @@ if (cleanedAuthor) {
     authors: book.author_name ?? ["Unknown author"],
     firstPublishYear: book.first_publish_year,
     coverId: book.cover_i,
+    pages: book.number_of_pages_median,
   }));
 
       setBooks(formattedBooks);
@@ -181,6 +235,16 @@ async function downloadWallpaper() {
     setIsExporting(false);
   }
 }
+  const spineShelf = packSpines(libraryBooks, NUMBER_OF_COMPARTMENTS);
+  const hiddenBookCount =
+    shelfView === "spines"
+      ? spineShelf.hiddenCount
+      : Math.max(
+          0,
+          libraryBooks.length -
+            NUMBER_OF_COMPARTMENTS * BOOKS_PER_COMPARTMENT,
+        );
+
   return (
     <main className="min-h-screen bg-[#f4efe6] text-[#2c2118]">
       <section className="mx-auto max-w-6xl px-6 py-20">
@@ -323,7 +387,25 @@ async function downloadWallpaper() {
 )}
           </div>
         )}
-        <div className="mt-16 flex justify-end">
+        <div className="mt-16 flex flex-wrap items-center justify-end gap-3">
+  <div
+    role="group"
+    aria-label="Shelf view"
+    className="flex rounded-full border border-[#b9aa98] bg-white/60 p-1"
+  >
+    {(["covers", "spines"] as const).map((view) => (
+      <button
+        key={view}
+        type="button"
+        onClick={() => setShelfView(view)}
+        aria-pressed={shelfView === view}
+        className="rounded-full px-4 py-2 text-sm font-semibold capitalize text-[#65584d] transition hover:text-[#2c2118] aria-pressed:bg-[#2c2118] aria-pressed:text-white"
+      >
+        {view}
+      </button>
+    ))}
+  </div>
+
   <button
     type="button"
     onClick={downloadWallpaper}
@@ -346,14 +428,64 @@ async function downloadWallpaper() {
       <h2 className="mt-2 text-4xl font-bold">My library</h2>
     </div>
 
-    <p className="text-sm text-[#65584d]">
+    <p className="text-right text-sm text-[#65584d]">
       {libraryBooks.length}{" "}
       {libraryBooks.length === 1 ? "book" : "books"}
+      {hiddenBookCount > 0 && (
+        <span className="block">
+          {hiddenBookCount} don&apos;t fit on the shelf
+          {shelfView === "covers" && " — try the spines view"}
+        </span>
+      )}
     </p>
   </div>
 
   <div ref={wallpaperRef} className="bookcase mt-8">
-    {Array.from({ length: NUMBER_OF_COMPARTMENTS }).map(
+    {shelfView === "spines" &&
+      spineShelf.compartments.map((compartmentSpines, compartmentIndex) => (
+        <div
+          key={compartmentIndex}
+          className="bookcase-compartment bookcase-compartment-spines"
+        >
+          <div className="bookcase-spines">
+            {compartmentSpines.map(({ book, size }) => {
+              const spineColor =
+                book.spineColor ?? getFallbackColor(book.key);
+
+              return (
+                <div
+                  key={book.key}
+                  className="bookcase-spine group"
+                  title={`${book.title} — ${book.authors[0]}`}
+                  style={{
+                    width: `${size.width}%`,
+                    height: `${size.height}%`,
+                    fontSize: `${size.width * 0.42}cqw`,
+                    backgroundColor: spineColor,
+                    color: getSpineTextColor(spineColor),
+                  }}
+                >
+                  <span className="bookcase-spine-title">{book.title}</span>
+                  <span className="bookcase-spine-author">
+                    {book.authors[0].split(" ").at(-1)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => removeBook(book.key)}
+                    aria-label={`Remove ${book.title} from shelf`}
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#31180d] px-2 py-1 text-xs font-semibold text-white opacity-0 shadow-md transition hover:bg-red-700 group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+    {shelfView === "covers" && Array.from({ length: NUMBER_OF_COMPARTMENTS }).map(
       (_, compartmentIndex) => {
         const startingIndex =
           compartmentIndex * BOOKS_PER_COMPARTMENT;
