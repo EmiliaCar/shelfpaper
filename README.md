@@ -8,6 +8,7 @@
 
 - **Book search**: find books by title, author, or both, powered by the [Open Library](https://openlibrary.org/developers/api) search API. Results come with real cover art.
 - **Personal library**: add books to a twelve-compartment bookcase that holds three books per compartment. Hover over a book and click **×** to remove it.
+- **Spines view**: switch the bookcase to show books spine-out, like a real shelf. Each spine takes its colour from the book's cover and its thickness from the page count, so the shelf fits 100+ books instead of 36.
 - **Saved automatically**: your library is stored in your browser's `localStorage`, so it's still there when you come back.
 - **Wallpaper export**: one click renders your bookcase as a 3024 × 1964 PNG, sized for a MacBook Pro display, using [`html-to-image`](https://github.com/bubkoo/html-to-image).
 
